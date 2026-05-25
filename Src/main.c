@@ -62,7 +62,68 @@ static void MX_NVIC_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void CAN_Interface_Start(CAN_HandleTypeDef *hcan)
+{
+   uint32_t filterBank = (hcan->Instance == CAN1) ? 0 : 14;
+   CAN_FilterTypeDef sFilterConfig = {
+       .FilterBank           = filterBank,
+       .FilterMode           = CAN_FILTERMODE_IDMASK,
+       .FilterScale          = CAN_FILTERSCALE_32BIT,
+       .FilterIdHigh         = 0x0000,
+       .FilterIdLow          = 0x0000,
+       .FilterMaskIdHigh     = 0x0000,
+       .FilterMaskIdLow      = 0x0000,
+       .FilterFIFOAssignment = CAN_RX_FIFO0,
+       .FilterActivation     = ENABLE,
+       .SlaveStartFilterBank = 14
+   };
 
+   if (HAL_CAN_ConfigFilter(hcan, &sFilterConfig) != HAL_OK)
+   {
+       Error_Handler();
+   }
+
+   if (HAL_CAN_Start(hcan) != HAL_OK)
+   {
+       Error_Handler();
+   }
+
+   if (HAL_CAN_ActivateNotification(hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
+   {
+       Error_Handler();
+   }
+}
+
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+   CAN_RxHeaderTypeDef rx_h;
+   uint8_t data[8];
+   uint32_t mailbox;
+
+   CAN_HandleTypeDef *dest = (hcan == &hcan1) ? &hcan2 : &hcan1;
+
+   if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx_h, data) == HAL_OK)
+   {
+       if (rx_h.StdId == 0x624) // set units to Celsius
+       {
+           data[2] = 0x00;
+       }
+
+       CAN_TxHeaderTypeDef tx_h = {
+           .StdId = rx_h.StdId,
+           .ExtId = rx_h.ExtId,
+           .IDE   = rx_h.IDE,
+           .RTR   = rx_h.RTR,
+           .DLC   = rx_h.DLC
+       };
+
+       HAL_StatusTypeDef res = HAL_CAN_AddTxMessage(dest, &tx_h, data, &mailbox);
+       if (res != HAL_OK)
+       {
+           // drop frame ¯\(ツ)/¯
+       }
+   }
+}
 /* USER CODE END 0 */
 
 /**
@@ -101,7 +162,8 @@ int main(void)
   /* Initialize interrupts */
   MX_NVIC_Init();
   /* USER CODE BEGIN 2 */
-
+  CAN_Interface_Start(&hcan1);
+  CAN_Interface_Start(&hcan2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -111,6 +173,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    HAL_IWDG_Refresh(&hiwdg);
   }
   /* USER CODE END 3 */
 }
